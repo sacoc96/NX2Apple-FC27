@@ -54,7 +54,7 @@ Il dettaglio tecnico di ogni modifica è nella cronologia e nei commenti del cod
 
 ### 1. Cosa ti serve
 
-- Un **Mac con Apple Silicon** (M1 o successivo) con macOS recente, almeno **60 GB liberi** e una connessione a Internet.
+- Un **Mac con Apple Silicon** (M1 o successivo) con macOS recente, almeno **150 GB liberi** (NSP, file estratti, app e cartella `romfs`) e una connessione a Internet.
 - **I tuoi file del gioco**, estratti dalla tua console (non sono inclusi qui e non vanno condivisi):
   - l'NSP base di EA SPORTS FC 27 (`0100C49025D3E000`, v0);
   - l'aggiornamento **v393216 (1.8d.310c)**;
@@ -98,14 +98,14 @@ I salvataggi e le impostazioni sono in `~/Library/Application Support/nxnative/0
    ```
    Nella cartella degli NSP ottieni due cose:
    - **`EaSportsFc27.ipa`** (circa 1,6 GB): l'app;
-   - la cartella **`romfs`** (circa 55 file: `romfs.idx`, `romfs.00`, `romfs.01`, …): i dati del gioco.
+   - la cartella **`romfs`** (circa 55 file, 32 GB in tutto: `romfs.idx`, `romfs.00`, `romfs.01`, …): i dati del gioco.
 2. **Attiva la Modalità sviluppatore sull'iPhone**: Impostazioni → Privacy e sicurezza → **Modalità sviluppatore** → attiva e riavvia.
 3. **Installa l'IPA** con **Impactor** (consigliato), **AltStore Classic 2.2 o successivo** oppure **Xcode con un Personal Team**, accedendo con il tuo Apple ID.
    - **Non usare Sideloadly**: scarta l'entitlement della memoria estesa e il gioco si chiude per mancanza di memoria.
    - Con un Apple ID gratuito l'app scade dopo 7 giorni e va reinstallata (i salvataggi restano).
 4. Se richiesto, **autorizza lo sviluppatore**: Impostazioni → Generali → VPN e gestione dispositivo → il tuo Apple ID → Autorizza.
 5. **Avvia l'app una volta e chiudila**: così iOS crea la sua cartella Documenti.
-6. **Copia la cartella `romfs` sull'iPhone**, dentro i Documenti dell'app (ci vuole un po': sono più di 10 GB):
+6. **Copia la cartella `romfs` sull'iPhone**, dentro i Documenti dell'app (ci vuole un po': sono circa 32 GB, quindi servono almeno 35 GB liberi sull'iPhone):
    - **dal Mac**: collega l'iPhone con il cavo → apri il Finder → seleziona l'iPhone nella barra laterale → scheda **File** → trascina la cartella `romfs` sopra **EA SPORTS FC 27**;
    - oppure con l'app **File** dell'iPhone (AirDrop o iCloud Drive), mettendola in *Su iPhone → EA SPORTS FC 27*.
 
