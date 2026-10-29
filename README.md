@@ -39,6 +39,8 @@ Il codice del gioco viene riscritto per Apple Silicon e i suoi shader vengono tr
 | Filmati (presentazione, conferenze, trattative) | ✅ | da verificare |
 | Ritratti dei giocatori (rosa, rinnovi) | ✅ | da verificare |
 
+I risultati qui sopra sono con tutti i 609 shader catturati. La cattura automatica (punto 3) è stata provata a parte; una costruzione completa da zero su un Mac diverso non è ancora stata provata: se qualcosa non va, apri una segnalazione (Issue).
+
 ## 🛠️ Cosa è stato corretto per FC 27
 
 Tutti i difetti grafici trovati durante il porting, e la loro causa:
@@ -79,12 +81,27 @@ cd NX2Apple-FC27
 
 Metti in una stessa cartella (per esempio `~/Downloads/Games/FC 27`) gli NSP del gioco, dell'aggiornamento e del DLC.
 
-### 3A. Installare su macOS
+### 3. Catturare gli shader (la prima volta)
+
+FC 27 non tiene i suoi shader in una forma che si possa estrarre dai file del gioco: il gioco li crea mentre gira. Per questo **non sono inclusi nel repository** (sono codice di EA) e ognuno li cattura dalla propria copia. Nel profilo c'è l'elenco dei **609 shader** che servono (`dm/games/0100C49025D3E000/nvn_capture.tsv`), così la costruzione sa quando la cattura è completa.
+
+1. **Prima costruzione, cattura automatica.** Lancia la costruzione per Mac (punto 4A, comando sotto). Prima di tradurre gli shader avvia il gioco da sola, senza finestra, per al massimo 15 minuti, premendo A ogni pochi secondi: cattura gli shader dell'avvio e dei primi menù. Alla fine dice quanti ne mancano, per esempio `shader capture: 59 of 609 shaders`.
+2. **Cattura giocando.** Lancia:
+   ```bash
+   python3 scripts/nvn_capture_play.py "$HOME/Downloads/Games/FC 27" -l it
+   ```
+   Si apre il gioco in una finestra con gli shader catturati fino a quel momento: dove ne mancano vedrai zone nere o sbagliate, è normale. Gioca e visita **tutto**: menù principale, Carriera Tecnico (crea una carriera, guarda la presentazione e i filmati, apri rosa e rinnovi), Carriera Professionista, una **partita completa** (con replay e intervallo). Nel Terminale compare il conteggio (`350 of 609 shaders captured`…). Quando dice **complete**, chiudi il gioco.
+3. **Ricostruisci** l'app (punto 4A) o l'IPA (punto 4B): ora ha tutti gli shader e la grafica è completa.
+
+Puoi ripetere il punto 2 quante volte vuoi: ogni volta riparte dagli shader già catturati, e la costruzione usa sempre quelli che ci sono. Gli shader catturati restano nella cartella di lavoro (`<cartella NSP>/0100C49025D3E000_build/extract/v393216/nvn_capture`): non cancellarla.
+
+### 4A. Installare su macOS
 
 1. Dal Terminale, nella cartella `NX2Apple-FC27`, costruisci l'app (la prima volta richiede parecchio tempo: estrazione, riscrittura del codice e traduzione degli shader):
    ```bash
    python3 scripts/build_ipa_from_nsp.py "$HOME/Downloads/Games/FC 27" --platform mac-app -k /percorso/prod.keys -l it
    ```
+   La prima volta segui poi il punto 3 (cattura degli shader) e ricostruisci.
 2. Alla fine trovi **`EA SPORTS FC 27.app`** nella cartella degli NSP. I file del gioco sono già dentro l'app (circa 33 GB): non serve copiare altro.
 3. Trascina l'app nella cartella **Applicazioni** (facoltativo).
 4. Primo avvio: l'app non è firmata da Apple, quindi fai **clic destro → Apri → Apri**. In alternativa: `xattr -dr com.apple.quarantine "EA SPORTS FC 27.app"`.
@@ -92,27 +109,28 @@ Metti in una stessa cartella (per esempio `~/Downloads/Games/FC 27`) gli NSP del
 
 I salvataggi e le impostazioni sono in `~/Library/Application Support/nxnative/0100C49025D3E000/`, il registro in `~/Library/Logs/nxnative/0100C49025D3E000.log`.
 
-### 3B. Installare su iPhone
+### 4B. Installare su iPhone
 
-1. **Costruisci l'IPA** dal Terminale, nella cartella `NX2Apple-FC27`:
+1. **Completa prima la cattura degli shader** (punto 3) sul Mac.
+2. **Costruisci l'IPA** dal Terminale, nella cartella `NX2Apple-FC27`:
    ```bash
    DM_ENTITLEMENTS=ios_entitlements.plist python3 scripts/build_ipa_from_nsp.py "$HOME/Downloads/Games/FC 27" --platform ios -k /percorso/prod.keys -l it
    ```
    Nella cartella degli NSP ottieni due cose:
    - **`EaSportsFc27.ipa`** (circa 1,6 GB): l'app;
    - la cartella **`romfs`** (circa 55 file, 32 GB in tutto: `romfs.idx`, `romfs.00`, `romfs.01`, …): i dati del gioco.
-2. **Attiva la Modalità sviluppatore sull'iPhone**: Impostazioni → Privacy e sicurezza → **Modalità sviluppatore** → attiva e riavvia.
-3. **Installa l'IPA** con **Impactor** (consigliato), **AltStore Classic 2.2 o successivo** oppure **Xcode con un Personal Team**, accedendo con il tuo Apple ID.
+3. **Attiva la Modalità sviluppatore sull'iPhone**: Impostazioni → Privacy e sicurezza → **Modalità sviluppatore** → attiva e riavvia.
+4. **Installa l'IPA** con **Impactor** (consigliato), **AltStore Classic 2.2 o successivo** oppure **Xcode con un Personal Team**, accedendo con il tuo Apple ID.
    - **Non usare Sideloadly**: scarta l'entitlement della memoria estesa e il gioco si chiude per mancanza di memoria.
    - Con un Apple ID gratuito l'app scade dopo 7 giorni e va reinstallata (i salvataggi restano).
-4. Se richiesto, **autorizza lo sviluppatore**: Impostazioni → Generali → VPN e gestione dispositivo → il tuo Apple ID → Autorizza.
-5. **Avvia l'app una volta e chiudila**: così iOS crea la sua cartella Documenti.
-6. **Copia la cartella `romfs` sull'iPhone**, dentro i Documenti dell'app (ci vuole un po': sono circa 32 GB, quindi servono almeno 35 GB liberi sull'iPhone):
+5. Se richiesto, **autorizza lo sviluppatore**: Impostazioni → Generali → VPN e gestione dispositivo → il tuo Apple ID → Autorizza.
+6. **Avvia l'app una volta e chiudila**: così iOS crea la sua cartella Documenti.
+7. **Copia la cartella `romfs` sull'iPhone**, dentro i Documenti dell'app (ci vuole un po': sono circa 32 GB, quindi servono almeno 35 GB liberi sull'iPhone):
    - **dal Mac**: collega l'iPhone con il cavo → apri il Finder → seleziona l'iPhone nella barra laterale → scheda **File** → trascina la cartella `romfs` sopra **EA SPORTS FC 27**;
    - oppure con l'app **File** dell'iPhone (AirDrop o iCloud Drive), mettendola in *Su iPhone → EA SPORTS FC 27*.
 
    Alla fine deve esistere `Documents/romfs/romfs.idx` dentro l'app.
-7. **Avvia il gioco.** Prima del gioco compare una schermata di impostazioni; poi parte FC 27. Usa un **controller Bluetooth** (Xbox, PlayStation, Switch Pro): quando è collegato i comandi touch spariscono. I primi secondi di ogni scena nuova possono avere un piccolo scatto, perché l'app prepara la grafica una volta sola e poi la ricorda.
+8. **Avvia il gioco.** Prima del gioco compare una schermata di impostazioni; poi parte FC 27. Usa un **controller Bluetooth** (Xbox, PlayStation, Switch Pro): quando è collegato i comandi touch spariscono. I primi secondi di ogni scena nuova possono avere un piccolo scatto, perché l'app prepara la grafica una volta sola e poi la ricorda.
 
 Testato su iPhone 17. Su iPhone con meno di 8 GB di RAM il gioco potrebbe non avere memoria sufficiente.
 
@@ -152,6 +170,8 @@ The game's code is rewritten for Apple Silicon and its shaders are translated to
 | Manager Career (3D menus, manager creation) | ✅ | to be verified |
 | Cutscenes (presentation, press conferences, negotiations) | ✅ | to be verified |
 | Player portraits (squad, contract renewals) | ✅ | to be verified |
+
+The results above are with all 609 shaders captured. The automatic capture (step 3) was tested on its own; a full build from scratch on a different Mac has not been tested yet: if something goes wrong, please open an Issue.
 
 ### 🛠️ What was fixed for FC 27
 
@@ -193,13 +213,28 @@ cd NX2Apple-FC27
 
 Put the game, update and DLC NSPs in one folder (for example `~/Downloads/Games/FC 27`).
 
-#### 3A. Install on macOS
+#### 3. Capture the shaders (the first time)
+
+FC 27 does not keep its shaders in a form that can be extracted from the game files: the game creates them while it runs. That is why they are **not included in this repository** (they are EA's code) and everyone captures them from their own copy. The profile lists the **609 shaders** the game needs (`dm/games/0100C49025D3E000/nvn_capture.tsv`), so the build knows when the capture is complete.
+
+1. **First build, automatic capture.** Run the Mac build (step 4A, command below). Before translating the shaders it boots the game by itself, without a window, for up to 15 minutes, pressing A every few seconds: it captures the shaders of the boot and the first menus. At the end it says how many are missing, for example `shader capture: 59 of 609 shaders`.
+2. **Capture by playing.** Run:
+   ```bash
+   python3 scripts/nvn_capture_play.py "$HOME/Downloads/Games/FC 27"
+   ```
+   The game opens in a window with the shaders captured so far: where some are missing you will see black or wrong areas, that is expected. Play and visit **everything**: main menu, Manager Career (create a career, watch the presentation and the cutscenes, open the squad and the contract renewals), Player Career, a **full match** (with replays and half time). Terminal shows the count (`350 of 609 shaders captured`…). When it says **complete**, close the game.
+3. **Build again** the app (step 4A) or the IPA (step 4B): it now has every shader and the graphics are complete.
+
+You can repeat step 2 as many times as you like: each time it starts from the shaders already captured, and the build always uses what is there. The captured shaders stay in the build folder (`<NSP folder>/0100C49025D3E000_build/extract/v393216/nvn_capture`): do not delete it.
+
+#### 4A. Install on macOS
 
 1. In Terminal, inside the `NX2Apple-FC27` folder, build the app (the first time takes a while: extraction, code rewrite and shader translation):
    ```bash
    python3 scripts/build_ipa_from_nsp.py "$HOME/Downloads/Games/FC 27" --platform mac-app -k /path/to/prod.keys
    ```
    (English by default; add `-l it` for Italian, `-l fr`, `-l de`, `-l es`… for other languages.)
+   The first time, then follow step 3 (shader capture) and build again.
 2. When it finishes you will find **`EA SPORTS FC 27.app`** in the NSP folder. The game files are already inside the app (about 33 GB): nothing else to copy.
 3. Drag the app into **Applications** (optional).
 4. First launch: the app is not signed by Apple, so **right-click → Open → Open**. Alternatively: `xattr -dr com.apple.quarantine "EA SPORTS FC 27.app"`.
@@ -207,27 +242,28 @@ Put the game, update and DLC NSPs in one folder (for example `~/Downloads/Games/
 
 Saves and settings are in `~/Library/Application Support/nxnative/0100C49025D3E000/`, the log in `~/Library/Logs/nxnative/0100C49025D3E000.log`.
 
-#### 3B. Install on iPhone
+#### 4B. Install on iPhone
 
-1. **Build the IPA** in Terminal, inside the `NX2Apple-FC27` folder:
+1. **First complete the shader capture** (step 3) on the Mac.
+2. **Build the IPA** in Terminal, inside the `NX2Apple-FC27` folder:
    ```bash
    DM_ENTITLEMENTS=ios_entitlements.plist python3 scripts/build_ipa_from_nsp.py "$HOME/Downloads/Games/FC 27" --platform ios -k /path/to/prod.keys
    ```
    In the NSP folder you get two things:
    - **`EaSportsFc27.ipa`** (about 1.6 GB): the app;
    - the **`romfs`** folder (about 55 files, 32 GB in total: `romfs.idx`, `romfs.00`, `romfs.01`, …): the game data.
-2. **Turn on Developer Mode on the iPhone**: Settings → Privacy & Security → **Developer Mode** → on, then restart.
-3. **Install the IPA** with **Impactor** (recommended), **AltStore Classic 2.2 or later** or **Xcode with a Personal Team**, signing in with your Apple ID.
+3. **Turn on Developer Mode on the iPhone**: Settings → Privacy & Security → **Developer Mode** → on, then restart.
+4. **Install the IPA** with **Impactor** (recommended), **AltStore Classic 2.2 or later** or **Xcode with a Personal Team**, signing in with your Apple ID.
    - **Do not use Sideloadly**: it drops the extended memory entitlement and the game is killed for lack of memory.
    - With a free Apple ID the app expires after 7 days and must be reinstalled (saves are kept).
-4. If asked, **trust the developer**: Settings → General → VPN & Device Management → your Apple ID → Trust.
-5. **Open the app once and close it**: this makes iOS create its Documents folder.
-6. **Copy the `romfs` folder to the iPhone**, into the app's Documents (it takes a while: about 32 GB, so you need at least 35 GB free on the iPhone):
+5. If asked, **trust the developer**: Settings → General → VPN & Device Management → your Apple ID → Trust.
+6. **Open the app once and close it**: this makes iOS create its Documents folder.
+7. **Copy the `romfs` folder to the iPhone**, into the app's Documents (it takes a while: about 32 GB, so you need at least 35 GB free on the iPhone):
    - **from the Mac**: connect the iPhone with a cable → open Finder → select the iPhone in the sidebar → **Files** tab → drag the `romfs` folder onto **EA SPORTS FC 27**;
    - or with the iPhone's **Files** app (AirDrop or iCloud Drive), placing it in *On My iPhone → EA SPORTS FC 27*.
 
    In the end `Documents/romfs/romfs.idx` must exist inside the app.
-7. **Launch the game.** A settings screen comes first, then FC 27 starts. Use a **Bluetooth controller** (Xbox, PlayStation, Switch Pro): while it is connected the touch controls disappear. The first seconds of each new scene can stutter slightly, because the app prepares its graphics once and then remembers them.
+8. **Launch the game.** A settings screen comes first, then FC 27 starts. Use a **Bluetooth controller** (Xbox, PlayStation, Switch Pro): while it is connected the touch controls disappear. The first seconds of each new scene can stutter slightly, because the app prepares its graphics once and then remembers them.
 
 Tested on iPhone 17. On iPhones with less than 8 GB of RAM the game may run out of memory.
 

@@ -1118,6 +1118,73 @@ def capture_glslc(repo, dirs, pkg_ver, patched, work, env, logs, g):
     PROG.end(f'{len(got)} shaders in {hms(time.time() - t0)}')
 
 
+def nvn_wanted(g):   # the NVN programs a game needs that only a run-time capture gives (the profile's nvn_capture.tsv, one key per line); None for the other games
+    t = g.table('nvn_capture.tsv')
+    return {l.strip() for l in open(t) if l.strip() and not l.startswith('#')} if t.is_file() else None
+
+
+def map_keys(t):   # the control section keys of a shader map (column 4)
+    return [c[3] for c in (l.rstrip('\n').split('\t') for l in open(t, errors='replace') if not l.startswith('#')) if len(c) > 4 and c[3] != 'dm_ctl_sha16']
+
+
+def nvn_done(d):   # keys of the programs a capture folder holds whole (both the control section and the code area)
+    if not d.is_dir(): return set()
+    return {p.stem for p in d.glob('*.ctl')} & {p.stem for p in d.glob('*.code')}
+
+
+NVN_AUTO_SECS = 900        # the longest automatic capture run (boot, first-run screens and menus, the A button pressed every few seconds)
+NVN_AUTO_IDLE = 240        # it stops earlier when no new program has appeared for this long
+
+
+def capture_nvn(repo, dirs, pkg_ver, patched, work, env, logs, g):
+    """A game whose shaders the game files do not hold in a form the shader split reads (EA SPORTS FC 27: Frostbite's NVN programs; the profile's nvn_capture.tsv lists the keys).
+    The game boots in the Mac host (headless and silent) with DM_NVN_SHDUMP and an empty shader map, so the host saves every program the game sets to <version dir>/nvn_capture,
+    where shader_split.py reads them; the A button is pressed every few seconds to get through the first-run screens and the menus. What this pass does not reach (career scenes,
+    matches) the player captures by playing: scripts/nvn_capture_play.py runs the game in a window with the shaders captured so far and saves the missing ones. A complete capture is reused"""
+    want = nvn_wanted(g)
+    d = dirs[pkg_ver]; cap = d / 'nvn_capture'
+    PROG.stage('NVN shader capture')
+    got = nvn_done(cap)
+    if got >= want: PROG.end(f'{len(want)} shaders, reused'); return
+    if got:
+        say(f'shader capture: {len(got & want)} of {len(want)} shaders already captured ({cap}); the automatic pass is skipped, scripts/nvn_capture_play.py completes the capture by playing')
+        PROG.end(f'{len(got & want)} of {len(want)} shaders'); return
+    PROG.set(step='building the Mac host')
+    host = build_mac_host(repo, work / 'tools/dmhost', env, logs, g)
+    rd, log, smap = work / 'tmp/nvn_run', logs / 'nvn_capture.log', work / 'tmp/nvn_capture_map.tsv'
+    rmtree(rd)
+    for x in ('save', 'temp'): (rd / x).mkdir(parents=True)
+    cap.mkdir(parents=True, exist_ok=True)
+    smap.write_text('# empty: every program the game sets is saved (DM_NVN_SHDUMP)\n')
+    keys = ','.join(f'{t}:A' for t in range(20, NVN_AUTO_SECS, 4))
+    henv = dict(env, DM_ROMFS=str(d / 'RomFS'), DM_SAVE=str(rd / 'save'), DM_TEMP=str(rd / 'temp'), DM_MSL_DIR=str(rd / 'msl'), DM_NVN_SHMAP=str(smap), DM_NVN_SHDUMP=str(cap), DM_KEYS=keys)
+    if (work / 'aoc').is_dir(): henv['DM_AOC_DIR'] = str(work / 'aoc')
+    PROG.set(step='booting the game', done=0, total=len(want), unit='shaders')
+    say(f'booting the game in the Mac host to capture its shaders (up to {NVN_AUTO_SECS // 60} minutes) → {cap}')
+    t0, last = time.time(), [time.time(), 0]
+    def done():
+        n = len(nvn_done(cap) & want); PROG.set(done=n)
+        if n != last[1]: last[0], last[1] = time.time(), n
+        return n >= len(want) or (n and time.time() - last[0] > NVN_AUTO_IDLE)
+    boot_mac(host, patched, henv, rd, log, NVN_AUTO_SECS, done)
+    rmtree(rd)
+    got = nvn_done(cap) & want
+    if not got:
+        PROG.end(ok=False)
+        raise BuildError(f'the automatic shader capture saved no shader (host output: {log})')
+    PROG.end(f'{len(got)} of {len(want)} shaders in {hms(time.time() - t0)}')
+
+
+def nvn_capture_note(g, work, pkg_ver):   # the end of a build: how much of the run-time shader capture is there, and how to complete it
+    want = nvn_wanted(g)
+    if want is None: return
+    got = nvn_done(work / 'extract' / pkg_ver / 'nvn_capture') & want
+    if got >= want: say(f'shader capture complete: {len(want)} of {len(want)} shaders'); return
+    say(f'[RED] shader capture: {len(got)} of {len(want)} shaders. The scenes that use the missing ones draw black or wrongly until they are captured: run\n'
+        f'    python3 scripts/nvn_capture_play.py "<NSP folder>"\n'
+        f'play through the menus, the career and a match until it says the capture is complete, then run this build again')
+
+
 UE_DECODE_SECS = 300   # the longest Oodle decode run: Octopath Traveler 0's 10,596 shaders take about 10 s, the boot up to nnMain included
 
 
@@ -1406,6 +1473,13 @@ def split_shaders(py, repo, roms, mains, pkg, env, logs, g, provisional=False, o
     else:
         # Data rows byte-identical to the profile's = the same game files the tables were built from; if not, stop (the profile's tables are left alone). Only data rows are compared: the header of Engage's profile tables was written by an older shader_split
         diff = [n for n in names if data_rows((tmp / 'tables' / n).read_bytes()) != data_rows(g.table(n).read_bytes())]
+        want = nvn_wanted(g)
+        if diff and want is not None and set(map_keys(tmp / 'tables' / 'shader_map.tsv')) <= want:
+            # A game whose shaders exist only as a run-time capture (nvn_capture.tsv): a capture that is not complete yet splits into fewer shaders, numbered otherwise, so its tables
+            # replace the profile's for this build (a complete capture splits into the profile's own tables again); the missing shaders are named at the end of the build
+            for n in names: shutil.copyfile(tmp / 'tables' / n, g.table(n))
+            say(f'[NOTE] shader capture not complete yet: {len(map_keys(tmp / "tables" / "shader_map.tsv"))} of the {len(want)} shaders the game needs (scripts/nvn_capture_play.py completes it)')
+            diff = []
         if diff: raise BuildError(f'the split shader tables differ from game profile {g.id}\'s: {", ".join(diff)} (game files not the versions the profile registers?)')
     rmtree(kf); swap_in(tmp / 'pkg', pkg); rmtree(tmp)
     note = f'{int(m.group(1)):,} shaders' if m else ''
@@ -1835,6 +1909,7 @@ def main(args=None):
     if mac and prepare_xcode: raise BuildError(f'--prepare-xcode makes an iPhone project: it cannot be combined with --platform {platform}')
     if mac and not apple_silicon(): raise BuildError(f'--platform {platform} runs the game in the Mac host, which runs the game\'s own arm64 code natively: it needs a Mac with Apple silicon, and this Mac has an Intel processor')
     keep = KEEP_EXTRACTED if args.keep_extracted is None else args.keep_extracted
+    if not keep and gamemod.by_title(app) and gamemod.by_title(app).table('nvn_capture.tsv').is_file(): say('keeping the extracted game files all the same: the run-time shader capture is kept beside them (nvn_capture)'); keep = True
     if mac and not keep: say('keeping the extracted game files all the same: the game runs from them on the Mac' + (' and the app is made of clones of them' if mac_pack else '')); keep = True
     if prepare_xcode and not keep: raise BuildError('--prepare-xcode requires --keep-extracted: Xcode builds from the extracted files')
     if args.xcode_workspace and not prepare_xcode: raise BuildError('--xcode-workspace requires --prepare-xcode')
@@ -1982,7 +2057,7 @@ def main(args=None):
     if gfx == 'gl': say(f'OpenGL game ({src["graphics"][1]}): gl_shaders.py translates the shaders instead of the NVN shader chain')
     for on, k in ((glslc, 'glslc_capture'), (vkcap, 'vk_capture'), (glcap, 'gl_capture'), (uedec, 'ue_decode'), (gfx == 'nvn' and src['oodle_packs'][0], 'oodle_packs'), (gfx == 'nvn' and src['ue_legacy'][0], 'ue_legacy')):
         if on: say(src[k][1])
-    PROG.add(glslc + vkcap + glcap + uedec + (gfx == 'nvn'))
+    PROG.add(glslc + vkcap + glcap + uedec + (gfx == 'nvn') + (gfx == 'nvn' and nvn_wanted(g) is not None))
     aoc = extract_aoc(nx, keys, repo, work, app, fam, logs)
     base = next((dirs[v] for v in versions if picks[v][1] is None), dirs[versions[0]])   # the folder the base game was extracted to alone
     # the app name and bundle ID both come from the base NSP: the game name in its control data, and a bundle ID from its title ID; a setting / the command line overrides them
@@ -2025,6 +2100,7 @@ def main(args=None):
         # Trinity packs and legacy Unreal paks: the split decodes them with the packed version's own decoder (Oodle, LZ5), in the Mac host built for the profile
         oodle = (lambda: {'DM_OODLE_HOST': str(build_mac_host(repo, work / 'tools/dmhost', env, logs, g)), 'DM_OODLE_MODULES': str(patched)}) if src['oodle_packs'][0] or src['ue_legacy'][0] else None
         own = bool(provisional or derived)   # the shader tables come from this build's split (the profile's are checked otherwise)
+        if nvn_wanted(g) is not None: capture_nvn(repo, {v: dirs[v] for v in sv}, pkg_ver, patched, work, env, logs, g)
         pkey = split_shaders(py, repo, [dirs[v] / 'RomFS' for v in sv], [dirs[v] / 'ExeFS/main' for v in sv], sh / 'pkg', env, logs, g, own, oodle)
         ios = build_shaders(py, repo, sh, xlate, env, logs, g, pkey, mac)
     icon = next((d / 'icon.jpg' for d in (game, base) if (d / 'icon.jpg').exists()), None)   # the game icon nx_extract saved from the control data (English, icon.jpg); the packed version's first, then the base game's
@@ -2036,7 +2112,7 @@ def main(args=None):
         rmtree(work / 'tmp')
         say(f'done: {out_ipa} ({tree_size(out_ipa)[1] / 2**30:.1f} GB); '
             f'open it from Finder. Its save is in ~/Library/Application Support/nxnative/{app:016X}/, its log in ~/Library/Logs/nxnative/{app:016X}.log')
-        report_profile_status(g, reg, pkg_ver, derived, provisional, 'Mac app')
+        nvn_capture_note(g, work, pkg_ver); report_profile_status(g, reg, pkg_ver, derived, provisional, 'Mac app')
         return
     if mac:   # a Mac-only build ends with the Mac host and the command that runs the game
         host, font = mac_host(py, repo, work, env, logs, g)
@@ -2044,7 +2120,7 @@ def main(args=None):
         rmtree(work / 'tmp')
         say(f'done: the game runs on the Mac with this command (its save in {work / "run/save"}, kept from run to run; DM_WINDOW=1 opens a window, DM_AUDIO=1 plays sound):')
         PROG.say(cmd)
-        report_profile_status(g, reg, pkg_ver, derived, provisional, 'Mac build')
+        nvn_capture_note(g, work, pkg_ver); report_profile_status(g, reg, pkg_ver, derived, provisional, 'Mac build')
         return
 
     if not prepare_xcode and free_gb(out_ipa.parent) < 5: raise BuildError(f'less than 5 GB free on the volume of {out_ipa.parent}')
@@ -2086,7 +2162,7 @@ def main(args=None):
     if not keep:
         say(f'deleting the extracted game files: {ex}'); rmtree(ex)
     say(f'done: {out_ipa} ({out_ipa.stat().st_size / 2**30:.1f} GB)')
-    report_profile_status(g, reg, pkg_ver, derived, provisional)
+    nvn_capture_note(g, work, pkg_ver); report_profile_status(g, reg, pkg_ver, derived, provisional)
 
 
 def cli(argv):   # returns the exit code: 0 done, 1 error, 130 interrupted
