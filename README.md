@@ -1,10 +1,12 @@
 <div align="center">
 
-# ⚽ EA SPORTS FC 27 — Mac e iPhone, nativo a 60 fps
+# ⚽ EA SPORTS FC 27 — Mac & iPhone, native 60 fps
 
 **EA SPORTS FC 27 (versione Nintendo Switch) che gira in modo nativo su Mac con Apple Silicon e su iPhone, a 60 fotogrammi al secondo, senza emulatore e senza artefatti grafici.**
 
-Basato su [NX2Apple](https://github.com/LNPANDY/NX2Apple) · Licenza [MIT](LICENSE)
+**EA SPORTS FC 27 (Nintendo Switch version) running natively on Apple Silicon Macs and iPhone at 60 frames per second, without an emulator and without graphics artifacts.**
+
+Basato su / Based on [NX2Apple](https://github.com/LNPANDY/NX2Apple) · [MIT](LICENSE)
 
 [🇮🇹 Italiano](#-il-progetto) · [🇬🇧 English](#-english)
 
@@ -126,4 +128,113 @@ Questo repository contiene solo codice. Non contiene file del gioco, chiavi o co
 
 ## 🇬🇧 English
 
-A fork of [NX2Apple](https://github.com/LNPANDY/NX2Apple) focused on **EA SPORTS FC 27 (Switch version) running natively on Apple Silicon Macs and iPhone at a locked 60 fps**, with every graphics bug found during the port fixed: dual-source blending for the Frostbite atmosphere pass (black career scenes), image atomics on buffer-texture views (light tile counters), the Maxwell `PRMT` instruction in the Ryujinx-based shader translator (blocky tiles on characters), and 16-bit shadow maps promoted to `Depth32Float` (speckled faces). Assets are the Switch ones: the project brings frame rate and a clean image, not PS5 graphics. Bring your own game dumps and keys; none are included. The original NX2Apple guide is in [README.NX2Apple.md](README.NX2Apple.md).
+### 🎯 The project
+
+This repository is a fork of NX2Apple with one goal: **full compatibility and optimization of EA SPORTS FC 27** on Mac and iPhone.
+
+The game's code is rewritten for Apple Silicon and its shaders are translated to Metal: the game runs directly on the Apple CPU and GPU, not inside an emulator. The result is a game that uses the power of Apple hardware instead of the limits of the Switch:
+
+| | Nintendo Switch | This project (Mac M2) |
+|---|---|---|
+| Frame rate | limited by the console hardware | **locked 60 fps** in menus, career and matches |
+| Internal resolution | the console's | **1920×1080**, upscaled to 2560×1440 with MetalFX |
+| Texture filtering | the console's | **16× anisotropic** |
+| Shadows | 16-bit shadow maps | **32-bit shadow maps** (no speckled faces) |
+
+> Honest note: models, textures and effects are those of the Switch version. The project brings smoothness and a clean image, not the graphics of the PS5 version.
+
+### ✅ Status
+
+| Area | Mac | iPhone |
+|---|---|---|
+| Boot, main menu | ✅ 60 fps | ✅ boots at 60 fps |
+| Full match | ✅ 60 fps, no crashes | to be verified |
+| Manager Career (3D menus, manager creation) | ✅ | to be verified |
+| Cutscenes (presentation, press conferences, negotiations) | ✅ | to be verified |
+| Player portraits (squad, contract renewals) | ✅ | to be verified |
+
+### 🛠️ What was fixed for FC 27
+
+Every graphics bug found during the port, and its cause:
+
+1. **Black career scenes and cutscenes.** Frostbite's atmosphere pass multiplies the lit scene by the air's transmittance, passed as the shader's second output (*dual-source blending*). The translation did not support it, so the scene was multiplied by almost zero. Fragment shaders with two outputs now get a `<key>_bd.metallib` variant with `[[color(0), index(1)]]`, built ahead of time for Mac and iPhone.
+2. **Career lights never counted.** The per-screen-tile light counters (image atomics on *buffer textures* viewed in another format) went to a discarded scratch buffer. They now write to the game's memory.
+3. **Dark squares and stair-stepped edges on characters.** The shader translator (derived from Ryujinx) did not implement the Maxwell `PRMT` instruction (byte permute), used by the shader that builds the light grid. It is now implemented with all its modes (`InstEmitPermute.cs`).
+4. **"Dirty", speckled faces in portraits.** Apple GPUs round depth into 16-bit shadow maps differently from the Switch, so surfaces shadowed themselves. 16-bit shadow maps now use `Depth32Float`.
+5. **Manager Career menu freezes** caused by missing shaders: captured and translated (over 600 shaders).
+6. Missing NVN functions (`nvnEventGetMemoryPool/Offset`, `WaitEvent`) and ordering of *indirect dispatches* after earlier compute work.
+
+The technical detail of every change is in the history and in the code comments (`dm/gfx/nvn/nvn_mtl.m`, `dm/gfx/tools/dmsh_build.py`, `dm/gfx/tex/nvn_fmt_mtl.c`).
+
+### 📦 Step-by-step installation
+
+#### 1. What you need
+
+- A **Mac with Apple Silicon** (M1 or later) on a recent macOS, at least **150 GB free** (NSPs, extracted files, app and `romfs` folder) and an Internet connection.
+- **Your own game files**, dumped from your console (they are not included here and must not be shared):
+  - the EA SPORTS FC 27 base NSP (`0100C49025D3E000`, v0);
+  - update **v393216 (1.8d.310c)**;
+  - optional: the commentary DLC;
+  - your `prod.keys`.
+- **Xcode** (from the App Store, opened at least once to accept the license) and **Homebrew**.
+
+#### 2. Prepare the Mac (once)
+
+Open Terminal and type:
+
+```bash
+xcode-select --install
+brew install xcodegen zstd spirv-cross
+brew install --cask dotnet-sdk
+python3 -m pip install lz4 capstone fonttools backports.zstd
+git clone https://github.com/sacoc96/NX2Apple-FC27.git
+cd NX2Apple-FC27
+```
+
+Put the game, update and DLC NSPs in one folder (for example `~/Downloads/Games/FC 27`).
+
+#### 3A. Install on macOS
+
+1. In Terminal, inside the `NX2Apple-FC27` folder, build the app (the first time takes a while: extraction, code rewrite and shader translation):
+   ```bash
+   python3 scripts/build_ipa_from_nsp.py "$HOME/Downloads/Games/FC 27" --platform mac-app -k /path/to/prod.keys
+   ```
+   (English by default; add `-l it` for Italian, `-l fr`, `-l de`, `-l es`… for other languages.)
+2. When it finishes you will find **`EA SPORTS FC 27.app`** in the NSP folder. The game files are already inside the app (about 33 GB): nothing else to copy.
+3. Drag the app into **Applications** (optional).
+4. First launch: the app is not signed by Apple, so **right-click → Open → Open**. Alternatively: `xattr -dr com.apple.quarantine "EA SPORTS FC 27.app"`.
+5. Play with a **controller** (Xbox, PlayStation, Switch Pro) connected over Bluetooth or USB.
+
+Saves and settings are in `~/Library/Application Support/nxnative/0100C49025D3E000/`, the log in `~/Library/Logs/nxnative/0100C49025D3E000.log`.
+
+#### 3B. Install on iPhone
+
+1. **Build the IPA** in Terminal, inside the `NX2Apple-FC27` folder:
+   ```bash
+   DM_ENTITLEMENTS=ios_entitlements.plist python3 scripts/build_ipa_from_nsp.py "$HOME/Downloads/Games/FC 27" --platform ios -k /path/to/prod.keys
+   ```
+   In the NSP folder you get two things:
+   - **`EaSportsFc27.ipa`** (about 1.6 GB): the app;
+   - the **`romfs`** folder (about 55 files, 32 GB in total: `romfs.idx`, `romfs.00`, `romfs.01`, …): the game data.
+2. **Turn on Developer Mode on the iPhone**: Settings → Privacy & Security → **Developer Mode** → on, then restart.
+3. **Install the IPA** with **Impactor** (recommended), **AltStore Classic 2.2 or later** or **Xcode with a Personal Team**, signing in with your Apple ID.
+   - **Do not use Sideloadly**: it drops the extended memory entitlement and the game is killed for lack of memory.
+   - With a free Apple ID the app expires after 7 days and must be reinstalled (saves are kept).
+4. If asked, **trust the developer**: Settings → General → VPN & Device Management → your Apple ID → Trust.
+5. **Open the app once and close it**: this makes iOS create its Documents folder.
+6. **Copy the `romfs` folder to the iPhone**, into the app's Documents (it takes a while: about 32 GB, so you need at least 35 GB free on the iPhone):
+   - **from the Mac**: connect the iPhone with a cable → open Finder → select the iPhone in the sidebar → **Files** tab → drag the `romfs` folder onto **EA SPORTS FC 27**;
+   - or with the iPhone's **Files** app (AirDrop or iCloud Drive), placing it in *On My iPhone → EA SPORTS FC 27*.
+
+   In the end `Documents/romfs/romfs.idx` must exist inside the app.
+7. **Launch the game.** A settings screen comes first, then FC 27 starts. Use a **Bluetooth controller** (Xbox, PlayStation, Switch Pro): while it is connected the touch controls disappear. The first seconds of each new scene can stutter slightly, because the app prepares its graphics once and then remembers them.
+
+Tested on iPhone 17. On iPhones with less than 8 GB of RAM the game may run out of memory.
+
+When something goes wrong: in the **Files** app, folder *EA SPORTS FC 27*, there is `log.txt` (and `log.prev.txt` for the previous launch). Settings can be changed without rebuilding by writing one `KEY=VALUE` line per setting in `Documents/env.txt`, for example `DM_FPS_TARGET=30` to save battery.
+
+The game profile is in [`dm/games/0100C49025D3E000`](dm/games/0100C49025D3E000); the full NX2Apple guide is in [README.NX2Apple.md](README.NX2Apple.md).
+
+### ⚖️ Legal
+
+This repository contains code only. It contains no game files, keys or EA or Nintendo content: to use it you must own the game and dump your own files. EA SPORTS FC is a trademark of Electronic Arts; Nintendo Switch is a trademark of Nintendo. This project is not affiliated with or endorsed by either company.
