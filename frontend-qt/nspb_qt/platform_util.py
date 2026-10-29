@@ -1,0 +1,289 @@
+"""Per-OS paths, tool discovery and process launching.
+
+Everything the UI needs that differs between Windows and macOS lives here, so the model and
+the window never branch on sys.platform themselves.
+"""
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+IS_WIN = sys.platform.startswith('win')
+IS_MAC = sys.platform == 'darwin'
+
+
+# ---------------------------------------------------------------- tool discovery
+
+def _which(name: str, extra: list[str] | None = None) -> str | None:
+    """shutil.which plus a list of absolute candidates (a GUI launch does not inherit the
+    shell's PATH on either OS, so the usual install locations are probed by hand)."""
+    if found := shutil.which(name):
+        return found
+    for c in extra or []:
+        if c and Path(c).is_file() and os.access(c, os.X_OK):
+            return c
+    return None
+
+
+def find_python(extra_candidates: list[str] | None = None) -> tuple[str, bool, str]:
+    """The interpreter to build with: (path, has_packages, version_or_empty).
+
+    The build scripts need lz4, capstone, fontTools, zstd and (for compressed dumps) nsz. A
+    system interpreter rarely has them, so the venv the app manages is checked first, then
+    every python on the machine. `extra_candidates` puts paths ahead of the system probes
+    without this module knowing about Windows specifics: the caller passes the interpreter the
+    app installed for itself (toolchain.python_dir), which a machine with no system Python is
+    exactly the one that has to be found again.
+    """
+    probe = (
+        "import lz4, capstone, fontTools\n"
+        "try:\n"
+        "    from compression import zstd\n"
+        "except ImportError:\n"
+        "    from backports import zstd\n"
+    )
+    cands: list[str] = [venv_python()] + [c for c in (extra_candidates or []) if c]
+    if IS_WIN:
+        cands += [
+            os.path.expandvars(r'%LOCALAPPDATA%\Programs\Python\Python312\python.exe'),
+            os.path.expandvars(r'%LOCALAPPDATA%\Programs\Python\Python311\python.exe'),
+            os.path.expandvars(r'%ProgramFiles%\Python312\python.exe'),
+        ]
+    else:
+        fw = '/Library/Frameworks/Python.framework/Versions'
+        if Path(fw).is_dir():
+            for v in sorted(os.listdir(fw), reverse=True):
+                cands.append(f'{fw}/{v}/bin/python3')
+        cands += ['/opt/homebrew/bin/python3', '/usr/local/bin/python3', '/usr/bin/python3']
+    if w := _which('python3' if not IS_WIN else 'python'):
+        cands.append(w)
+
+    fallback: tuple[str, str] | None = None
+    seen: set[str] = set()
+    for c in cands:
+        if not c or c in seen or not Path(c).is_file():
+            continue
+        seen.add(c)
+        ver = _python_version(c)
+        if not ver or _ver_tuple(ver) < (3, 9):
+            continue
+        if _runs(c, ['-c', probe]):
+            return (c, True, ver)
+        if fallback is None:
+            fallback = (c, ver)
+    if fallback:
+        return (fallback[0], False, fallback[1])
+    return ('python' if IS_WIN else '/usr/bin/python3', False, '')
+
+
+def _python_version(py: str) -> str:
+    try:
+        r = subprocess.run([py, '-c', 'import sys;print("%d.%d"%sys.version_info[:2])'],
+                           capture_output=True, text=True, timeout=20)
+        return r.stdout.strip() if r.returncode == 0 else ''
+    except Exception:
+        return ''
+
+
+def _ver_tuple(v: str) -> tuple[int, int]:
+    parts = v.split('.')
+    try:
+        return (int(parts[0]), int(parts[1]))
+    except (IndexError, ValueError):
+        return (0, 0)
+
+
+def _runs(exe: str, args: list[str]) -> bool:
+    try:
+        return subprocess.run([exe] + args, capture_output=True, timeout=120).returncode == 0
+    except Exception:
+        return False
+
+
+def venv_dir() -> Path:
+    if IS_WIN:
+        base = Path(os.environ.get('LOCALAPPDATA', Path.home() / 'AppData' / 'Local'))
+    else:
+        base = Path.home() / 'Library' / 'Application Support'
+    return base / 'NS Port Builder' / 'venv'
+
+
+def venv_python() -> str:
+    v = venv_dir()
+    return str(v / ('Scripts/python.exe' if IS_WIN else 'bin/python3'))
+
+
+# ---------------------------------------------------------------- dotnet
+
+def find_dotnet() -> tuple[str, bool]:
+    cands = []
+    if IS_WIN:
+        cands += [r'C:\Program Files\dotnet\dotnet.exe',
+                  os.path.expandvars(r'%LOCALAPPDATA%\Microsoft\dotnet\dotnet.exe')]
+    else:
+        cands += [str(Path.home() / '.dotnet' / 'dotnet'),
+                  '/usr/local/share/dotnet/dotnet',
+                  '/opt/homebrew/bin/dotnet']
+    path = _which('dotnet', cands) or ('dotnet.exe' if IS_WIN else 'dotnet')
+    ok = _runs(path, ['--list-sdks'])
+    return (path, ok)
+
+
+def dotnet_root(dotnet: str) -> str | None:
+    """The runtime root the apphost looks for, from `dotnet --list-runtimes`.
+
+    A set-but-wrong DOTNET_ROOT is worse than none (the apphost stops searching), so this
+    returns None when the derivation does not answer and the caller leaves the variable out —
+    the build script derives and verifies its own in that case.
+    """
+    try:
+        r = subprocess.run([dotnet, '--list-runtimes'], capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            return None
+    except Exception:
+        return None
+    for ln in r.stdout.splitlines():
+        if not ln.startswith('Microsoft.NETCore.App'):
+            continue
+        if '[' in ln and ']' in ln:
+            p = ln[ln.rfind('[') + 1:ln.rfind(']')]
+        else:
+            continue
+        suffix = os.sep + os.path.join('shared', 'Microsoft.NETCore.App')
+        if p.endswith(suffix):
+            return p[:-len(suffix)]
+        if p:
+            return p
+    return None
+
+
+# ---------------------------------------------------------------- external tools
+
+def find_tool(name: str) -> str | None:
+    """xcodegen / zstd / spirv-cross / metal, by the usual locations per OS."""
+    if IS_WIN:
+        extra = [rf'C:\Program Files\{name}\{name}.exe',
+                 rf'C:\ProgramData\chocolatey\bin\{name}.exe']
+        return _which(name + '.exe', extra)
+    return _which(name, [f'/opt/homebrew/bin/{name}', f'/usr/local/bin/{name}'])
+
+
+def metal_toolchain_ok() -> bool:
+    """Whether a Metal compiler answers. On Windows that is Apple's Metal Developer Tools
+    (metal.exe + metallib.exe); on macOS it is xcrun's."""
+    if IS_WIN:
+        return find_tool('metal') is not None and find_tool('metallib') is not None
+    return _runs('/usr/bin/xcrun', ['-sdk', 'macosx', 'metal', '--version'])
+
+
+def ios_sdk_ok() -> bool:
+    if IS_WIN:
+        # The Windows path uses an iPhoneOS SDK extracted from an archive, located by the
+        # caller (the WebUI does the same); presence of the directory is the check.
+        return bool(os.environ.get('IPHONEOS_SDK_DIR') and Path(os.environ['IPHONEOS_SDK_DIR']).is_dir())
+    return _runs('/usr/bin/xcrun', ['--sdk', 'iphoneos', '--show-sdk-version'])
+
+
+def xcode_developer_dir() -> str:
+    """The selected developer directory (`xcode-select -p`), or '' when none is selected.
+
+    Asked rather than assumed: an Xcode **beta** lives at /Applications/Xcode-beta.app, and the
+    hard-coded /Applications/Xcode.app check reported "no Xcode" to anyone whose only install is
+    a beta (issue #21). `xcode-select` is the same source of truth xcodebuild and xcrun use, so
+    agreeing with it is what makes the panel match what the build will actually do.
+    """
+    if IS_WIN:
+        return ''
+    try:
+        r = subprocess.run(['/usr/bin/xcode-select', '-p'], capture_output=True, text=True,
+                           timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return ''
+    return (r.stdout or '').strip() if r.returncode == 0 else ''
+
+
+def xcode_ok() -> bool:
+    if IS_WIN:
+        return False        # Xcode is macOS-only; Windows uses the cross toolchain instead
+    # A selected developer directory that exists is the real condition: it covers Xcode.app,
+    # Xcode-beta.app, a custom location, and a Command Line Tools-only setup (which selects
+    # /Library/Developer/CommandLineTools and has no xcodebuild-driven iOS build at all — that
+    # case is caught by the iOS SDK probe below, which is what the row reports).
+    dev = xcode_developer_dir()
+    if not dev or not Path(dev).is_dir():
+        return False
+    return Path('/usr/bin/xcodebuild').is_file()
+
+
+# ---------------------------------------------------------------- process helpers
+
+def child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """The environment every child process gets: a PATH with the usual tool directories,
+    HOME/USER present (a GUI launch can strip them), and DOTNET_CLI_HOME so .NET's first-run
+    state has somewhere to go."""
+    env = dict(os.environ)
+    dirs = [env.get('PATH', '')]
+    if IS_WIN:
+        dirs += [r'C:\Program Files\dotnet', os.path.expandvars(r'%LOCALAPPDATA%\Microsoft\dotnet')]
+        sep = ';'
+    else:
+        dirs += ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin']
+        sep = ':'
+    env['PATH'] = sep.join(d for d in dirs if d)
+    if not env.get('HOME') or not Path(env['HOME']).is_dir():
+        env['HOME'] = str(Path.home())
+    env.setdefault('USER', os.environ.get('USERNAME') or os.environ.get('USER') or 'user')
+    env.setdefault('DOTNET_CLI_HOME', env['HOME'])
+    # No first-run banner, no telemetry (issue #10's question): the deps panel runs `dotnet
+    # --list-sdks` directly, outside the build script where the same two lines are set. The
+    # telemetry call can hang the very first run on a network that cannot reach Microsoft.
+    env.setdefault('DOTNET_CLI_TELEMETRY_OPTOUT', '1')
+    env.setdefault('DOTNET_NOLOGO', '1')
+    if extra:
+        env.update(extra)
+    return env
+
+
+def short_path(p: str) -> str:
+    """Home shown as ~ (keeps the account name out of screenshots)."""
+    home = str(Path.home())
+    return '~' + p[len(home):] if p.startswith(home) else p
+
+
+def no_window_kwargs() -> dict:
+    """Hide the console window a child process would otherwise flash on Windows."""
+    if IS_WIN:
+        return {'creationflags': subprocess.CREATE_NO_WINDOW}
+    return {}
+
+
+def hide_console_for_children() -> None:
+    """Stop *every* child this process starts from opening a console window (Windows only).
+
+    Called once at start-up. Per-call `creationflags` cannot be added everywhere: the build runs
+    the repository's own Python scripts as children, and those scripts start clang, git, lld and
+    zip themselves — dozens of call sites in files this front end does not own. A windowed app has
+    no console, so each of those children got a fresh black window, and on a handheld the report
+    was "a command-line window appears, shows nothing, and the install stops moving" — the window
+    was git's, and it was stealing the foreground while the download ran behind it.
+
+    A child created with CREATE_NO_WINDOW still gets a console, just no window, and its own
+    children inherit that invisible console — which is why patching at the boundary is enough to
+    cover the whole tree.
+
+    A caller that passes its own `creationflags` keeps them: DETACHED_PROCESS and
+    CREATE_NEW_CONSOLE mean something, and silently overriding them would break that intent.
+    """
+    if not IS_WIN:
+        return
+    original = subprocess.Popen.__init__
+
+    def patched(self, args, *a, **k):        # noqa: ANN001 - mirrors Popen.__init__
+        if not k.get('creationflags') and not k.get('startupinfo'):
+            k['creationflags'] = subprocess.CREATE_NO_WINDOW
+        original(self, args, *a, **k)
+
+    subprocess.Popen.__init__ = patched       # type: ignore[method-assign]

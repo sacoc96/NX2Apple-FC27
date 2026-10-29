@@ -1,0 +1,7 @@
+# Hand-written translation answers merged over the generated shader_facts.tsv (dm/gfx/tools/shader_split.py): key <TAB> fact JSON
+# Pool arrays (dmsh_xlate QueryTextureArrayLengthFromPool / QuerySamplerArrayLengthFromPool): these pixel shaders read a texture handle that names a pool entry directly, from a
+# vertex attribute (indicator, indicator_luminance: the player cursor and markers) or a storage buffer (flag); the host fills element i with the texture / sampler of ID i.
+# The game registers texture IDs up to about 2,040 and sampler IDs up to about 620 (Mac runs), so 4096 and 1024
+815a1b91fe6f921b	{"samp_pool":1024,"tex_pool":4096}
+84559f9769271907	{"samp_pool":1024,"tex_pool":4096}
+01446bfafa5a2637	{"samp_pool":1024,"tex_pool":4096}

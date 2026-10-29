@@ -1,0 +1,44 @@
+# Game profile of FIFA 18 (Switch, base game 1.0.0 = v0). Plays on the Mac from the base NSP: menus, kits and full matches at 60 fps with sound; the back buffer is raised to 2560x1440 docked (patches.py)
+# Format: see dm/games/README.md
+# EA's RNA renderer and SportsRNA on NVN, SDK 3.4.0: the shaders are GLSLC outputs in EA's encrypted BIG archives (data/fifarna/shader.big, shaderboot.big; dm/gfx/tools/eabig.py) and in main
+
+# ---- Identity ----
+title_id	0100F7B002340000
+program_id	0100F7B002340000
+
+# ---- App ----
+# Game name: only a label for profile listings and the Mac window title; the iOS app name is the game name in the base NSP, and the bundle ID comes from the base game title ID (build_ipa.sh / NSP script)
+name	FIFA 18
+ipa	Fifa18.ipa
+app_category	public.app-category.sports-games
+
+# ---- Versions ----
+build	v0	1.0.0	main=36cffaaac1363c53a9aafb9488b502cd	subsdk0=83af90f1f9f3551423636eff2f123f00	sdk=a26029f675095f3910c45a9fef585bbc
+package	v0
+shader_versions	v0
+
+# ---- Files ----
+# every module main imports from (subsdk0 = GLSLC)
+modules	main subsdk0 sdk
+romfs_marker	data3.big
+zip_store	.big:.cbac:.nso:.nss:.vp6:.metallib
+
+# ---- Memory ----
+# main sets a heap of at most the pool − 64 MB: a 3328 MB heap region (the NSP script's guess, kept: no allocation failure on the Mac through full matches)
+mem_reserve	0x100000000
+mem_alias	0x10000000
+mem_stack	0x10000000
+app_pool	0xCD500000
+# the NPDM declares 0 MB of system resource: IsVirtualAddressMemoryEnabled is false, as on Horizon
+sys_resource	0x0
+# used memory for the rewritten modules, at least the default 64 MB
+mem_used	0x7000000
+
+# ---- Shader split ----
+shader_groups	/data/=data
+shader_note	FIFA 18 shaders (provisional profile)
+
+# ---- Graphics ----
+# texcompface.fxo (the players' faces, composed at run time) picks one of 8 combined texture handles from the driver table (c2 0x20 + 8 × slot, slots 0-7) by its loop index,
+# so the translator could not trace it to one slot; every other integer read of c2 there is a table slot (drv_reads 32-80)
+tex_dyn_slots	on
