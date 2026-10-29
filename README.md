@@ -33,11 +33,11 @@ Il codice del gioco viene riscritto per Apple Silicon e i suoi shader vengono tr
 
 | Area | Mac | iPhone |
 |---|---|---|
-| Avvio, menù principale | ✅ 60 fps | ✅ si avvia a 60 fps |
-| Partita completa | ✅ 60 fps, senza crash | da verificare |
-| Carriera Tecnico (menù 3D, creazione tecnico) | ✅ | da verificare |
-| Filmati (presentazione, conferenze, trattative) | ✅ | da verificare |
-| Ritratti dei giocatori (rosa, rinnovi) | ✅ | da verificare |
+| Avvio, menù principale | ✅ 60 fps | ✅ 60 fps |
+| Partita completa | ✅ 60 fps, senza crash | ✅ 60 fps, senza crash |
+| Carriera Tecnico (menù 3D, creazione tecnico) | ✅ | ✅ |
+| Filmati (presentazione, conferenze, trattative) | ✅ | ✅ |
+| Ritratti dei giocatori (rosa, rinnovi) | ✅ | ✅ |
 
 I risultati qui sopra sono con tutti i 609 shader catturati. La cattura automatica (punto 3) è stata provata a parte; una costruzione completa da zero su un Mac diverso non è ancora stata provata: se qualcosa non va, apri una segnalazione (Issue).
 
@@ -165,11 +165,11 @@ The game's code is rewritten for Apple Silicon and its shaders are translated to
 
 | Area | Mac | iPhone |
 |---|---|---|
-| Boot, main menu | ✅ 60 fps | ✅ boots at 60 fps |
-| Full match | ✅ 60 fps, no crashes | to be verified |
-| Manager Career (3D menus, manager creation) | ✅ | to be verified |
-| Cutscenes (presentation, press conferences, negotiations) | ✅ | to be verified |
-| Player portraits (squad, contract renewals) | ✅ | to be verified |
+| Boot, main menu | ✅ 60 fps | ✅ 60 fps |
+| Full match | ✅ 60 fps, no crashes | ✅ 60 fps, no crashes |
+| Manager Career (3D menus, manager creation) | ✅ | ✅ |
+| Cutscenes (presentation, press conferences, negotiations) | ✅ | ✅ |
+| Player portraits (squad, contract renewals) | ✅ | ✅ |
 
 The results above are with all 609 shaders captured. The automatic capture (step 3) was tested on its own; a full build from scratch on a different Mac has not been tested yet: if something goes wrong, please open an Issue.
 
